@@ -1,0 +1,41 @@
+{
+  "name": "egressor-proxy",
+  "version": "1.0.0",
+  "description": "Advanced HTTP/HTTPS proxy server with authentication",
+  "type": "module",
+  "main": "src/index.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mra1k3r0/egressor.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build.cjs",
+    "dev": "tsx src/index.ts",
+    "clean": "rm -rf dist",
+    "format": "prettier --write \"**/*.{js,ts,cjs,json}\"",
+    "format:check": "prettier --check \"**/*.{js,ts,cjs,json}\""
+  },
+  "keywords": [
+    "proxy",
+    "http",
+    "https",
+    "typescript",
+    "authentication",
+    "oop"
+  ],
+  "author": "mra1k3r0",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "http-proxy": "^1.18.1"
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "^20.0.0",
+    "prettier": "^3.7.4",
+    "ts-node": "^10.9.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}
