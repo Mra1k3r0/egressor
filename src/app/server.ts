@@ -1,15 +1,9 @@
-import { config } from 'dotenv';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { Socket } from 'net';
-import { AuthService, AuthConfig } from './auth-service.js';
-import { ProxyService } from './proxy-service.js';
-
-config();
-
-export interface ServerConfig {
-  port: number;
-  auth: AuthConfig;
-}
+import { AuthService } from '../services/auth.js';
+import { ProxyService } from '../services/proxy.js';
+import appConfig from './config.js';
+import { ServerConfig } from '../types.js';
 
 /**
  * MAIN SERVER
@@ -22,15 +16,15 @@ export class Server {
 
   constructor(config: Partial<ServerConfig> = {}) {
     this.config = {
-      port: parseInt(process.env.PORT || '30345'),
+      port: appConfig.port,
+      persistentCredentials: appConfig.persistentCredentials,
       auth: {
-        userByteLength: 6,
-        passByteLength: 8,
+        ...appConfig.auth,
+        persistentCredentials: appConfig.persistentCredentials,
       },
       ...config,
     };
 
-    // Create auth service immediately to display credentials
     this.authService = new AuthService(this.config.auth);
   }
 
@@ -47,18 +41,14 @@ export class Server {
 
   private getHttpServer(): ReturnType<typeof createServer> {
     if (!this.httpServer) {
-      this.httpServer = createServer(this.handleRequest.bind(this));
-      this.httpServer.on('connect', this.handleConnect.bind(this));
+      this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+        this.getProxyService().handleHttpRequest(req, res);
+      });
+      this.httpServer.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+        this.getProxyService().handleConnectRequest(req, socket, head);
+      });
     }
     return this.httpServer;
-  }
-
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
-    this.getProxyService().handleHttpRequest(req, res);
-  }
-
-  private handleConnect(req: IncomingMessage, socket: Socket, head: Buffer): void {
-    this.getProxyService().handleConnectRequest(req, socket, head);
   }
 
   /**

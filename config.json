@@ -1,0 +1,8 @@
+{
+  "port": 30345,
+  "persistentCredentials": false,
+  "auth": {
+    "userByteLength": 6,
+    "passByteLength": 8
+  }
+}

@@ -1,4 +1,16 @@
-import { Server } from './server.js';
+/**
+ * MAIN ENTRY POINT
+ */
+
+import { Server } from './app/server.js';
+
+process.on('uncaughtException', err => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 async function main(): Promise<void> {
   try {

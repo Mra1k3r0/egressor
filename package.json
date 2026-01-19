@@ -27,7 +27,6 @@
   "author": "mra1k3r0",
   "license": "MIT",
   "dependencies": {
-    "dotenv": "^16.3.1",
     "http-proxy": "^1.18.1"
   },
   "devDependencies": {

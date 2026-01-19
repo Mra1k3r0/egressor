@@ -28,8 +28,26 @@ This compiles TypeScript and starts the server automatically.
 
 ## Configuration
 
-Create a `.env` file to configure the port:
+Create a `config.json` file in the root directory:
 
+```json
+{
+  "port": 30345,
+  "persistentCredentials": false,
+  "auth": {
+    "userByteLength": 6,
+    "passByteLength": 8
+  }
+}
 ```
-PORT=30345
-```
+
+### Configuration Options
+
+- `port`: Server port (default: 30345)
+- `persistentCredentials`: Save credentials to file for reuse across restarts
+- `auth.userByteLength`: Username length in bytes (default: 6)
+- `auth.passByteLength`: Password length in bytes (default: 8)
+
+### Persistent Credentials
+
+Set `persistentCredentials: true` to save generated credentials to `.credentials.json` and reuse them across server restarts. Prevents authentication issues when the server restarts. Disabled by default.
