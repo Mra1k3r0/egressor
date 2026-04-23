@@ -27,7 +27,7 @@
   "author": "mra1k3r0",
   "license": "MIT",
   "dependencies": {
-    "http-proxy": "^1.18.1"
+    "http-proxy": "^1.18.2"
   },
   "devDependencies": {
     "@types/http-proxy": "^1.17.17",
