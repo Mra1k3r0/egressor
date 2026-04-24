@@ -1,0 +1,4 @@
+## 2025-05-14 - Timing Attack and File Permission Vulnerabilities
+**Vulnerability:** The authentication system was vulnerable to timing attacks due to direct string comparison of the Basic Auth token. Additionally, the `.credentials.json` file was created with default system permissions, potentially allowing other users on the system to read the proxy credentials.
+**Learning:** `crypto.timingSafeEqual` is essential for comparing sensitive tokens to prevent information leakage through execution time. When persisting credentials, explicit file modes (like `0o600`) should be used to enforce the principle of least privilege at the filesystem level.
+**Prevention:** Always use constant-time comparison for authentication tokens and specify restrictive file permissions when handling sensitive data on disk.
