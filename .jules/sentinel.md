@@ -1,0 +1,4 @@
+## 2025-05-22 - Mitigate Timing Attacks and Secure Credential Storage
+vulnerability: Potential timing attacks in Basic Auth token comparison and insecure file permissions for stored credentials.
+learning: Using simple string comparison for authentication tokens can expose the system to timing attacks. Additionally, sensitive credential files should have restricted permissions (0o600) to prevent unauthorized access by other users on the system. Node.js `writeFile` with `mode` might not affect existing files, so `chmod` should be used to guarantee permissions.
+prevention: Always use `crypto.timingSafeEqual` for sensitive comparisons and explicitly set restricted file permissions using `chmod` (e.g., 0o600) when storing secrets on disk. Be careful when removing seemingly unused code that might be part of an incomplete or future feature, especially during security refactors.
