@@ -1,7 +1,7 @@
 import { IncomingHttpHeaders } from 'http';
 import { Socket } from 'net';
-import { randomBytes } from 'crypto';
-import { readFile, writeFile } from 'fs/promises';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { readFile, writeFile, chmod } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AuthConfig, Credentials } from '../types.js';
@@ -53,7 +53,12 @@ export class AuthService {
 
   private async saveCredentials(credentials: Credentials): Promise<void> {
     try {
-      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2));
+      // Save with 0o600 permissions (read/write for owner only)
+      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2), {
+        mode: 0o600,
+      });
+      // Ensure permissions are set correctly even if file already existed
+      await chmod(this.credentialsFile, 0o600);
       console.log('\x1b[32m→\x1b[0m Credentials saved to file');
     } catch (error) {
       console.error('\x1b[31m→\x1b[0m Failed to save credentials to file:', error);
@@ -99,7 +104,15 @@ export class AuthService {
     }
 
     const providedToken = authHeader.slice(6);
-    return providedToken === this.credentials.basicToken;
+    const expectedToken = this.credentials.basicToken;
+
+    // Use timingSafeEqual to prevent timing attacks
+    // requires buffers of equal length
+    if (providedToken.length !== expectedToken.length) {
+      return false;
+    }
+
+    return timingSafeEqual(Buffer.from(providedToken), Buffer.from(expectedToken));
   }
 
   public sendAuthRequired(response: { writeHead: Function; end: Function }): void {
