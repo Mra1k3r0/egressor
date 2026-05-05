@@ -1,6 +1,6 @@
 import { IncomingHttpHeaders } from 'http';
 import { Socket } from 'net';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { readFile, writeFile } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -99,7 +99,15 @@ export class AuthService {
     }
 
     const providedToken = authHeader.slice(6);
-    return providedToken === this.credentials.basicToken;
+    const providedBuffer = Buffer.from(providedToken);
+    const expectedBuffer = Buffer.from(this.credentials.basicToken);
+
+    // use timing-safe comparison to prevent timing attacks
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return timingSafeEqual(providedBuffer, expectedBuffer);
   }
 
   public sendAuthRequired(response: { writeHead: Function; end: Function }): void {
