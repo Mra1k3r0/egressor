@@ -39,7 +39,8 @@ export class ConnectionPool {
       timeout,
       keepAlive,
       keepAliveMsecs,
-      rejectUnauthorized: false,
+      // enforce ssl certificate verification for upstream connections
+      rejectUnauthorized: true,
     });
   }
 
