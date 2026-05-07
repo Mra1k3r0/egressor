@@ -1,6 +1,6 @@
 import { IncomingHttpHeaders } from 'http';
 import { Socket } from 'net';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { readFile, writeFile } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -53,7 +53,10 @@ export class AuthService {
 
   private async saveCredentials(credentials: Credentials): Promise<void> {
     try {
-      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2));
+      // Save credentials with restricted permissions (0600)
+      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2), {
+        mode: 0o600,
+      });
       console.log('\x1b[32m→\x1b[0m Credentials saved to file');
     } catch (error) {
       console.error('\x1b[31m→\x1b[0m Failed to save credentials to file:', error);
@@ -88,7 +91,7 @@ export class AuthService {
   }
 
   /**
-   * Authenticate request using Basic Auth
+   * Authenticate request using Basic Auth with timing attack protection
    * @param headers HTTP headers containing proxy-authorization
    * @returns true if authentication succeeds
    */
@@ -99,7 +102,14 @@ export class AuthService {
     }
 
     const providedToken = authHeader.slice(6);
-    return providedToken === this.credentials.basicToken;
+    const providedBuffer = Buffer.from(providedToken);
+    const expectedBuffer = Buffer.from(this.credentials.basicToken);
+
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return timingSafeEqual(providedBuffer, expectedBuffer);
   }
 
   public sendAuthRequired(response: { writeHead: Function; end: Function }): void {
