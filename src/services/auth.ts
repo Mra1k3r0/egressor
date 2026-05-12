@@ -1,7 +1,7 @@
 import { IncomingHttpHeaders } from 'http';
 import { Socket } from 'net';
-import { randomBytes } from 'crypto';
-import { readFile, writeFile } from 'fs/promises';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { writeFile } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AuthConfig, Credentials } from '../types.js';
@@ -53,29 +53,14 @@ export class AuthService {
 
   private async saveCredentials(credentials: Credentials): Promise<void> {
     try {
-      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2));
+      // save with restricted permissions (rw-------)
+      await writeFile(this.credentialsFile, JSON.stringify(credentials, null, 2), {
+        mode: 0o600,
+      });
       console.log('\x1b[32m→\x1b[0m Credentials saved to file');
     } catch (error) {
       console.error('\x1b[31m→\x1b[0m Failed to save credentials to file:', error);
     }
-  }
-
-  private async loadOrGenerateCredentials(): Promise<Credentials> {
-    try {
-      const data = await readFile(this.credentialsFile, 'utf-8');
-      const savedCredentials = JSON.parse(data) as Credentials;
-
-      if (savedCredentials.username && savedCredentials.password && savedCredentials.basicToken) {
-        console.log('Loaded existing credentials from file');
-        return savedCredentials;
-      }
-    } catch (error) {
-      console.log('Generating new credentials (file not found or invalid)');
-    }
-
-    const credentials = this.generateCredentials();
-    await this.saveCredentials(credentials);
-    return credentials;
   }
 
   private displayCredentials(): void {
@@ -99,7 +84,15 @@ export class AuthService {
     }
 
     const providedToken = authHeader.slice(6);
-    return providedToken === this.credentials.basicToken;
+    const expectedToken = this.credentials.basicToken;
+
+    // use timingSafeEqual to prevent timing attacks
+    // requires buffers of equal length
+    if (providedToken.length !== expectedToken.length) {
+      return false;
+    }
+
+    return timingSafeEqual(Buffer.from(providedToken), Buffer.from(expectedToken));
   }
 
   public sendAuthRequired(response: { writeHead: Function; end: Function }): void {
