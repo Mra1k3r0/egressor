@@ -39,7 +39,7 @@ export class ConnectionPool {
       timeout,
       keepAlive,
       keepAliveMsecs,
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
     });
   }
 
