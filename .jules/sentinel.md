@@ -1,0 +1,4 @@
+## 2026-04-25 - Timing Attack Vulnerability in AuthService
+**Vulnerability:** The proxy authentication was using a standard string equality operator (`===`), which is susceptible to timing attacks. An attacker could potentially deduce the correct authentication token by measuring the time it takes for the server to respond to different invalid tokens.
+**Learning:** Even simple authentication mechanisms like Basic Auth need to be implemented with timing-safe comparisons when tokens are sensitive. Additionally, credentials saved to the filesystem should always have restricted permissions to prevent local privilege escalation or information leakage.
+**Prevention:** Always use `crypto.timingSafeEqual` for sensitive comparisons and ensure strict file permissions (e.g., `0o600`) for any files containing secrets.

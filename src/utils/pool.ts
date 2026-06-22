@@ -9,9 +9,6 @@ export interface ConnectionConfig {
   keepAliveMsecs?: number;
 }
 
-/**
- * CONNECTION POOL
- */
 export class ConnectionPool {
   private readonly httpAgent: HttpAgent;
   private readonly httpsAgent: HttpsAgent;
@@ -22,7 +19,7 @@ export class ConnectionPool {
       maxFreeSockets = 10,
       timeout = 60000,
       keepAlive = true,
-      keepAliveMsecs = 1000,
+      keepAliveMsecs = 30000,
     } = config;
 
     this.httpAgent = new HttpAgent({
@@ -32,14 +29,13 @@ export class ConnectionPool {
       keepAlive,
       keepAliveMsecs,
     });
-
     this.httpsAgent = new HttpsAgent({
       maxSockets,
       maxFreeSockets,
       timeout,
       keepAlive,
       keepAliveMsecs,
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
     });
   }
 

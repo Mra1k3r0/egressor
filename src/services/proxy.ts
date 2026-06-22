@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { Socket, connect as netConnect } from 'net';
-import httpProxy from 'http-proxy';
+import { createProxyServer } from 'httpxy';
+import { EventEmitter } from 'events';
 import { AuthService } from './auth.js';
 import { ConnectionPool } from '../utils/pool.js';
 import { LRUCache } from '../utils/cache.js';
@@ -10,15 +11,24 @@ import {
   formatTimestamp,
   cleanIpAddress,
   checkUrlReachability,
+  isIPv4InRange,
 } from '../utils/http-utils.js';
-import { CONNECTION_POOL, CACHE_CONFIG, TIMEOUTS, HTTP_STATUS } from '../constants.js';
+import {
+  CONNECTION_POOL,
+  CACHE_CONFIG,
+  TIMEOUTS,
+  HTTP_STATUS,
+  TUNNEL_FILTER,
+} from '../constants.js';
 import { ProxyLogData } from '../types.js';
 
-/**
- * PROXY SERVICE
- */
+interface ProxyInstance extends EventEmitter {
+  web(req: IncomingMessage, res: ServerResponse, opts?: Record<string, unknown>): void;
+  close(): void;
+}
+
 export class ProxyService {
-  private readonly proxy: any;
+  private readonly proxy: ProxyInstance;
   private readonly authService: AuthService;
   private readonly connectionPool: ConnectionPool;
   private readonly cache: LRUCache;
@@ -35,164 +45,159 @@ export class ProxyService {
       maxSize: CACHE_CONFIG.MAX_SIZE,
       defaultTTL: CACHE_CONFIG.DEFAULT_TTL,
     });
-    this.proxy = this.createProxyServer();
-  }
-
-  private createProxyServer(): any {
-    const proxy = httpProxy.createProxyServer({
+    this.proxy = createProxyServer({
       changeOrigin: true,
       secure: true,
       agent: this.connectionPool.getHttpAgent(),
-    });
+    }) as unknown as ProxyInstance;
 
-    proxy.on('error', (err: any, req: any, res: any) => {
+    this.proxy.on('error', (err: Error, req: IncomingMessage, res: ServerResponse) => {
       this.log('proxy_error', { message: err.message });
       try {
-        const rawRes = res.raw || res;
-        if (!rawRes.headersSent) {
-          rawRes.writeHead(502);
-          rawRes.end('Bad Gateway');
+        if (!res.headersSent) {
+          res.writeHead(502);
+          res.end('Bad Gateway');
         }
       } catch {}
     });
-
-    return proxy;
   }
 
   private log(event: string, data: ProxyLogData): void {
-    const time = formatTimestamp();
-    console.log(`[${time}] ${event}`, data);
+    setImmediate(() => {
+      const time = formatTimestamp();
+      console.log(`[${time}] ${event}`, data);
+    });
+  }
+
+  private isDestinationAllowed(host: string): { allowed: boolean; reason?: string } {
+    if (TUNNEL_FILTER.ALLOW_ALL) return { allowed: true };
+
+    const hostLower = host.toLowerCase();
+
+    if (TUNNEL_FILTER.BLOCKED_HOSTS.includes(hostLower)) {
+      return { allowed: false, reason: 'host_blocklisted' };
+    }
+
+    if (TUNNEL_FILTER.ALLOWED_HOSTS.length > 0) {
+      return TUNNEL_FILTER.ALLOWED_HOSTS.includes(hostLower)
+        ? { allowed: true }
+        : { allowed: false, reason: 'not_in_allowlist' };
+    }
+
+    for (const [start, end] of TUNNEL_FILTER.BLOCKED_RANGES) {
+      if (isIPv4InRange(host, start, end)) {
+        return { allowed: false, reason: `blocked_range_${start}-${end}` };
+      }
+    }
+
+    if (['localhost', '0.0.0.0', 'metadata.google.internal'].includes(hostLower)) {
+      return { allowed: false, reason: 'blocked_name' };
+    }
+
+    return { allowed: true };
   }
 
   /**
-   * Handle HTTP proxy request with caching and authentication
+   * Handle HTTP proxy request with LRU cache for GET/HEAD and auth check
    * @param req Incoming HTTP request
    * @param res HTTP response
    */
   public handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
-    const rawReq = req;
-    const rawRes = res;
-
-    // Handle client disconnects
     const cleanup = () => {
       try {
-        rawReq.destroy();
-        rawRes.destroy();
+        req.destroy();
+        res.destroy();
       } catch {}
     };
 
-    rawReq.on('error', cleanup);
-    rawRes.on('error', cleanup);
-    rawReq.on('close', cleanup);
-    rawRes.on('close', cleanup);
+    req.on('error', cleanup);
+    res.on('error', cleanup);
+    req.on('close', cleanup);
+    res.on('close', cleanup);
 
-    if (!this.authService.authenticate(rawReq.headers)) {
+    if (!this.authService.authenticate(req.headers)) {
       this.log('auth_fail_http', {
-        ip: cleanIpAddress(rawReq.socket.remoteAddress),
-        method: rawReq.method,
-        url: rawReq.url,
+        ip: cleanIpAddress(req.socket.remoteAddress),
+        method: req.method,
+        url: req.url,
       });
-      this.authService.sendAuthRequired(rawRes);
+      this.authService.sendAuthRequired(res);
       return;
     }
 
-    const host = extractHostFromHeaders(rawReq.headers);
+    const host = extractHostFromHeaders(req.headers);
     if (!host) {
       this.log('bad_request', { reason: 'missing_host' });
-      rawRes.writeHead(HTTP_STATUS.BAD_REQUEST);
-      rawRes.end('Missing Host');
+      res.writeHead(HTTP_STATUS.BAD_REQUEST);
+      res.end('Missing Host');
       return;
     }
 
-    const method = rawReq.method || 'GET';
-    const url = rawReq.url || '/';
-
-    // Ensure URL is just the path, not a full URL
+    const method = req.method || 'GET';
+    const url = req.url || '/';
     const path = url.startsWith('http') ? new URL(url).pathname + new URL(url).search : url;
     const cacheKey = `http://${host}${path}`;
 
-    // Check cache for GET requests
     if (isCacheableMethod(method)) {
       const cached = this.cache.get(cacheKey, method);
       if (cached) {
         this.log('cache_hit', { url: cacheKey });
-        rawRes.writeHead(cached.statusCode, cached.headers);
-        rawRes.end(cached.data);
+        res.writeHead(cached.statusCode, cached.headers);
+        res.end(cached.data);
         return;
       }
     }
 
     this.log('http_request', {
-      ip: cleanIpAddress(rawReq.socket.remoteAddress),
+      ip: cleanIpAddress(req.socket.remoteAddress),
       method,
       host,
       url,
     });
 
-    // Intercept response to cache it
-    const originalWriteHead = rawRes.writeHead;
-    const originalWrite = rawRes.write;
-    const originalEnd = rawRes.end;
-    let responseData: Buffer[] = [];
-    let responseHeaders: Record<string, string | string[]> = {};
-    let statusCode = 200;
-    let responseFinished = false;
-
-    const safeCall = (fn: Function, ...args: any[]) => {
-      try {
-        return fn.apply(this, args);
-      } catch (err) {
-        // Client disconnected, ignore errors
-        return undefined;
-      }
-    };
-
-    rawRes.writeHead = function (code: number, headers?: any) {
-      if (responseFinished) return;
-      statusCode = code;
-      if (headers && typeof headers === 'object') {
-        responseHeaders = headers;
-      }
-      return safeCall(originalWriteHead, code, headers);
-    };
-
-    rawRes.write = function (chunk: any, encoding?: any, callback?: any) {
-      if (responseFinished) return true;
-      if (Buffer.isBuffer(chunk) || typeof chunk === 'string') {
-        responseData.push(Buffer.from(chunk));
-      }
-      return safeCall(originalWrite, chunk, encoding, callback);
-    };
-
-    const self = this;
-    rawRes.end = function (chunk?: any, encoding?: any, callback?: any) {
-      if (responseFinished) return;
-      responseFinished = true;
-
-      if (chunk && (Buffer.isBuffer(chunk) || typeof chunk === 'string')) {
-        responseData.push(Buffer.from(chunk));
-      }
-
-      // Cache the response if cacheable
-      try {
-        if (self.cache.isCacheable(method, statusCode, responseHeaders)) {
-          const data = Buffer.concat(responseData);
-          self.cache.set(cacheKey, method, data, responseHeaders, statusCode);
-        }
-      } catch (err) {
-        // Ignore cache errors
-      }
-
-      return safeCall(originalEnd, chunk, encoding, callback);
-    };
-
     const target = `http://${host}`;
-    this.proxy.web(rawReq, rawRes, {
-      target,
-      timeout: TIMEOUTS.REQUEST_TIMEOUT,
-    });
+
+    if (!isCacheableMethod(method)) {
+      this.proxy.web(req, res, { target, timeout: TIMEOUTS.REQUEST_TIMEOUT });
+      return;
+    }
+
+    const cache = this.cache;
+    const proxyInstance = this.proxy;
+
+    const onResponse = (proxyRes: IncomingMessage, req_: IncomingMessage, res_: ServerResponse) => {
+      if (req_ !== req || res_ !== res) return;
+      proxyInstance.removeListener('proxyRes', onResponse);
+
+      const statusCode = proxyRes.statusCode || 200;
+      const responseHeaders = proxyRes.headers as Record<string, string | string[]>;
+
+      if (cache.isCacheable(method, statusCode, responseHeaders)) {
+        const chunks: Buffer[] = [];
+        proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+        proxyRes.on('end', () => {
+          try {
+            cache.set(cacheKey, method, Buffer.concat(chunks), responseHeaders, statusCode);
+          } catch {}
+        });
+      }
+
+      try {
+        res.writeHead(statusCode, responseHeaders);
+        proxyRes.pipe(res);
+      } catch {}
+    };
+
+    proxyInstance.on('proxyRes', onResponse);
+    this.proxy.web(req, res, { target, timeout: TIMEOUTS.REQUEST_TIMEOUT });
   }
 
+  /**
+   * Handle CONNECT tunnel with destination filtering and auth
+   * @param req Incoming HTTP request
+   * @param clientSocket Client TCP socket
+   * @param head Initial data buffer
+   */
   public handleConnectRequest(req: IncomingMessage, clientSocket: Socket, head: Buffer): void {
     if (!this.authService.authenticate(req.headers)) {
       this.log('auth_fail_connect', {
@@ -210,6 +215,21 @@ export class ProxyService {
       return;
     }
 
+    const destCheck = this.isDestinationAllowed(host);
+    if (!destCheck.allowed) {
+      this.log('connect_blocked', {
+        ip: cleanIpAddress(clientSocket.remoteAddress),
+        host,
+        port: portStr || '443',
+        reason: destCheck.reason,
+      });
+      clientSocket.write(
+        'HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\nDestination blocked by proxy policy\n'
+      );
+      clientSocket.end();
+      return;
+    }
+
     this.log('connect_tunnel', {
       ip: cleanIpAddress(clientSocket.remoteAddress),
       host,
@@ -222,11 +242,7 @@ export class ProxyService {
   private establishTunnel(clientSocket: Socket, head: Buffer, host: string, port: number): void {
     const serverSocket = netConnect(port, host, () => {
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-
-      if (head?.length) {
-        serverSocket.write(head);
-      }
-
+      if (head?.length) serverSocket.write(head);
       serverSocket.pipe(clientSocket);
       clientSocket.pipe(serverSocket);
     });
@@ -251,7 +267,6 @@ export class ProxyService {
     serverSocket.on('close', cleanup);
     clientSocket.on('close', cleanup);
 
-    // Set timeout for long-running connections
     const timeout = setTimeout(() => {
       this.log('tunnel_timeout', { host });
       cleanup();
@@ -269,17 +284,12 @@ export class ProxyService {
     return this.cache.size();
   }
 
-  /**
-   * Health check for a target URL
-   */
   public async healthCheck(url: string, timeout = 5000): Promise<boolean> {
-    return await checkUrlReachability(url, { timeout });
+    return checkUrlReachability(url, { timeout });
   }
 
   public destroy(): void {
-    if (this.proxy) {
-      this.proxy.close();
-    }
+    this.proxy.close();
     this.connectionPool.destroy();
     this.cache.clear();
   }

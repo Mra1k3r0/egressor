@@ -1,7 +1,3 @@
-/**
- * MAIN ENTRY POINT
- */
-
 import { Server } from './app/server.js';
 
 process.on('uncaughtException', err => {
@@ -17,17 +13,14 @@ async function main(): Promise<void> {
     const server = new Server();
     await server.start();
 
-    process.on('SIGINT', async () => {
+    const shutdown = async () => {
       console.log('\nShutting down...');
       await server.stop();
       process.exit(0);
-    });
+    };
 
-    process.on('SIGTERM', async () => {
-      console.log('\nShutting down...');
-      await server.stop();
-      process.exit(0);
-    });
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
