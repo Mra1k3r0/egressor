@@ -1,7 +1,3 @@
-/**
- * CONFIGURATION
- */
-
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AppConfig } from '../types.js';
@@ -21,12 +17,15 @@ try {
   const configPath = join(process.cwd(), 'config.json');
   const configData = readFileSync(configPath, 'utf-8');
   configFromFile = { ...defaultConfig, ...JSON.parse(configData) };
-} catch (error) {
+} catch {
   console.log('Using default configuration (config.json not found or invalid)');
 }
 
 const appConfig: AppConfig = {
-  port: process.env.PORT ? parseInt(process.env.PORT) : configFromFile.port,
+  port: (() => {
+    const envPort = parseInt(process.env.PORT || '', 10);
+    return !isNaN(envPort) && envPort > 0 && envPort <= 65535 ? envPort : configFromFile.port;
+  })(),
   persistentCredentials: configFromFile.persistentCredentials,
   auth: configFromFile.auth,
 };

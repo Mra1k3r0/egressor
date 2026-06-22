@@ -1,14 +1,11 @@
-import { IncomingHttpHeaders } from 'http';
+import { IncomingHttpHeaders, ServerResponse } from 'http';
 import { Socket } from 'net';
-import { randomBytes } from 'crypto';
-import { readFile, writeFile } from 'fs/promises';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { writeFile } from 'fs/promises';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AuthConfig, Credentials } from '../types.js';
 
-/**
- * AUTHENTICATION SERVICE
- */
 export class AuthService {
   private readonly credentials: Credentials;
   private readonly config: AuthConfig;
@@ -24,16 +21,15 @@ export class AuthService {
     if (this.config.persistentCredentials) {
       try {
         const data = readFileSync(this.credentialsFile, 'utf-8');
-        const savedCredentials = JSON.parse(data) as Credentials;
-        if (savedCredentials.username && savedCredentials.password && savedCredentials.basicToken) {
+        const saved = JSON.parse(data) as Credentials;
+        if (saved.username && saved.password && saved.basicToken) {
           console.log('\x1b[36m→\x1b[0m Loaded existing credentials from file');
-          return savedCredentials;
+          return saved;
         }
-      } catch (error) {
+      } catch {
         console.log('\x1b[36m→\x1b[0m Generating new credentials (file not found or invalid)');
       }
     }
-
     return this.generateCredentials();
   }
 
@@ -60,24 +56,6 @@ export class AuthService {
     }
   }
 
-  private async loadOrGenerateCredentials(): Promise<Credentials> {
-    try {
-      const data = await readFile(this.credentialsFile, 'utf-8');
-      const savedCredentials = JSON.parse(data) as Credentials;
-
-      if (savedCredentials.username && savedCredentials.password && savedCredentials.basicToken) {
-        console.log('Loaded existing credentials from file');
-        return savedCredentials;
-      }
-    } catch (error) {
-      console.log('Generating new credentials (file not found or invalid)');
-    }
-
-    const credentials = this.generateCredentials();
-    await this.saveCredentials(credentials);
-    return credentials;
-  }
-
   private displayCredentials(): void {
     console.log('\x1b[36m→\x1b[0m Proxy credentials');
     console.log({ USER: this.credentials.username, PASS: this.credentials.password });
@@ -88,24 +66,27 @@ export class AuthService {
   }
 
   /**
-   * Authenticate request using Basic Auth
+   * Authenticate request using Basic Auth with timing-safe comparison
    * @param headers HTTP headers containing proxy-authorization
    * @returns true if authentication succeeds
    */
   public authenticate(headers: IncomingHttpHeaders): boolean {
     const authHeader = headers['proxy-authorization'];
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
+    if (!authHeader || !authHeader.startsWith('Basic ')) return false;
+
+    const providedBuf = Buffer.from(authHeader.slice(6), 'utf-8');
+    const expectedBuf = Buffer.from(this.credentials.basicToken, 'utf-8');
+
+    if (providedBuf.length !== expectedBuf.length) {
+      timingSafeEqual(expectedBuf, expectedBuf);
       return false;
     }
 
-    const providedToken = authHeader.slice(6);
-    return providedToken === this.credentials.basicToken;
+    return timingSafeEqual(providedBuf, expectedBuf);
   }
 
-  public sendAuthRequired(response: { writeHead: Function; end: Function }): void {
-    response.writeHead(407, {
-      'Proxy-Authenticate': 'Basic realm="Proxy"',
-    });
+  public sendAuthRequired(response: ServerResponse): void {
+    response.writeHead(407, { 'Proxy-Authenticate': 'Basic realm="Proxy"' });
     response.end();
   }
 

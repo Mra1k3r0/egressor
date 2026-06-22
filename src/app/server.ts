@@ -3,18 +3,15 @@ import { Socket } from 'net';
 import { AuthService } from '../services/auth.js';
 import { ProxyService } from '../services/proxy.js';
 import appConfig from './config.js';
-import { ServerConfig } from '../types.js';
+import { AppConfig } from '../types.js';
 
-/**
- * MAIN SERVER
- */
 export class Server {
-  private readonly config: ServerConfig;
+  private readonly config: AppConfig;
   private readonly authService: AuthService;
   private proxyService?: ProxyService;
   private httpServer?: ReturnType<typeof createServer>;
 
-  constructor(config: Partial<ServerConfig> = {}) {
+  constructor(config: Partial<AppConfig> = {}) {
     this.config = {
       port: appConfig.port,
       persistentCredentials: appConfig.persistentCredentials,
@@ -24,17 +21,12 @@ export class Server {
       },
       ...config,
     };
-
     this.authService = new AuthService(this.config.auth);
-  }
-
-  private getAuthService(): AuthService {
-    return this.authService;
   }
 
   private getProxyService(): ProxyService {
     if (!this.proxyService) {
-      this.proxyService = new ProxyService(this.getAuthService());
+      this.proxyService = new ProxyService(this.authService);
     }
     return this.proxyService;
   }
@@ -51,9 +43,6 @@ export class Server {
     return this.httpServer;
   }
 
-  /**
-   * Start the proxy server
-   */
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.getHttpServer().listen(this.config.port, (error?: Error) => {
@@ -71,17 +60,15 @@ export class Server {
 
   public async stop(): Promise<void> {
     return new Promise(resolve => {
-      this.httpServer?.close(() => {
-        resolve();
-      });
+      this.httpServer?.close(() => resolve());
     });
   }
 
-  public getConfig(): ServerConfig {
+  public getConfig(): AppConfig {
     return { ...this.config };
   }
 
   public getCredentials() {
-    return this.getAuthService().getCredentials();
+    return this.authService.getCredentials();
   }
 }

@@ -1,7 +1,3 @@
-/**
- * SHARED TYPESCRIPT INTERFACES AND TYPES
- */
-
 export interface AppConfig {
   port: number;
   persistentCredentials: boolean;
@@ -12,12 +8,6 @@ export interface AuthConfig {
   userByteLength: number;
   passByteLength: number;
   persistentCredentials?: boolean;
-}
-
-export interface ServerConfig {
-  port: number;
-  persistentCredentials: boolean;
-  auth: AuthConfig;
 }
 
 export interface Credentials {
@@ -32,13 +22,6 @@ export interface CacheEntry {
   statusCode: number;
   timestamp: number;
   ttl: number;
-}
-
-export interface ConnectionPoolConfig {
-  maxSockets: number;
-  maxFreeSockets: number;
-  keepAlive: boolean;
-  keepAliveMsecs: number;
 }
 
 export interface ProxyLogData {

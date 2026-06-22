@@ -4,5 +4,10 @@
   "auth": {
     "userByteLength": 6,
     "passByteLength": 8
+  },
+  "tunnelFilter": {
+    "allowAll": false,
+    "blockedHosts": [],
+    "allowedHosts": []
   }
 }
